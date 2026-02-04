@@ -175,7 +175,7 @@ server:
 # NETWORK SIMULATION (Optional)
 # =============================================================================
 network:
-  simulate_latency: true          # Simulate network delays
+  simulate_latency: false          # Simulate network delays
   bandwidth_mbps: 10               # Simulated bandwidth (Mbps)
 
 # =============================================================================
