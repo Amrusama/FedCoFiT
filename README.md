@@ -1,6 +1,6 @@
-# FedCoFiT: Federated Co-Training for Large Language Models
+# FedCoFiT: Federated Co-training for Fine-tuning LLMs
 
-**FedCoFiT** is a federated learning framework for instruction-following and classification tasks that uses **semantic consensus-based pseudo-labeling** to improve model performance across distributed clients.
+**FedCoFiT** is a federated learning framework for instruction-following and classification tasks that uses **semantic consensus approach** proposed in **Beyond Parameter Aggregation: Semantic Consensus for Federated Fine-Tuning of LLM** to improve model performance across distributed clients.
 
 ## 🎯 Key Features
 
