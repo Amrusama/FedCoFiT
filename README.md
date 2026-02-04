@@ -344,7 +344,7 @@ If you use FedCoFiT in your research, please cite:
 @article{fedcofit2025,
   title={Beyond Parameter Aggregation: Semantic Consensus for Federated Fine-Tuning
 of LLMs},
-  author={Amr Abourayya, Jens Kleesiek, Michael Kamp },
+  author={XXXX},
   journal={arXiv preprint arXiv:XXXX.XXXXX},
   year={2025}
 }
