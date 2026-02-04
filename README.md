@@ -341,11 +341,12 @@ You are a helpful assistant.</s>
 If you use FedCoFiT in your research, please cite:
 
 ```bibtex
-@article{fedcofit2024,
-  title={FedCoFiT: Federated Co-Training for Large Language Models},
-  author={Your Name},
+@article{fedcofit2025,
+  title={Beyond Parameter Aggregation: Semantic Consensus for Federated Fine-Tuning
+of LLMs},
+  author={Amr Abourayya, Jens Kleesiek, Michael Kamp },
   journal={arXiv preprint arXiv:XXXX.XXXXX},
-  year={2024}
+  year={2025}
 }
 ```
 
@@ -353,9 +354,4 @@ If you use FedCoFiT in your research, please cite:
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
 
-- [HuggingFace Transformers](https://github.com/huggingface/transformers)
-- [PEFT](https://github.com/huggingface/peft) for LoRA implementation
-- [Sentence Transformers](https://www.sbert.net/) for embedding models
-- Databricks for the Dolly-15k dataset
