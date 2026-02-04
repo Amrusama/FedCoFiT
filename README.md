@@ -2,6 +2,8 @@
 
 **FedCoFiT** is a federated learning framework for instruction-following and classification tasks that uses **semantic consensus approach** proposed in **Beyond Parameter Aggregation: Semantic Consensus for Federated Fine-Tuning of LLM** to improve model performance across distributed clients.
 
+![FedCoFiT Architecture](fedcofit_figure.png)
+
 ## 🎯 Key Features
 
 - **Semantic Consensus**: Uses DBSCAN clustering on sentence embeddings to find agreement across client predictions
