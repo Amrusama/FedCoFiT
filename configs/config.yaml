@@ -154,16 +154,16 @@ generation:
 # =============================================================================
 # SERVER SETTINGS (Semantic Consensus)
 # =============================================================================
+# Communication flow:
+# 1. Clients send TEXT responses to the server
+# 2. Server computes sentence embeddings using SBERT
+# 3. Server runs DBSCAN clustering to find consensus
+# 4. Server broadcasts consensus responses back to clients
+
 server:
-  # Communication mode:
-  # - "text": Clients send text responses, server computes embeddings (lower bandwidth)
-  # - "embeddings": Clients compute & send embeddings (faster aggregation)
-  send_mode: text
-  
   # Sentence embedding model for semantic similarity
   embedding_model_name: sentence-transformers/all-MiniLM-L6-v2
-  embedding_device: cpu            # cpu | cuda:0
-  embedding_dtype_for_comm: float16
+  embedding_device: cpu            # cpu | cuda:0 (for faster embedding)
   
   # DBSCAN clustering for consensus
   dbscan:

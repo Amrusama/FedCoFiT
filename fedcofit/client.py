@@ -10,7 +10,6 @@ import numpy as np
 import torch
 from datasets import load_dataset
 from peft import LoraConfig, get_peft_model
-from sentence_transformers import SentenceTransformer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer, get_linear_schedule_with_warmup
@@ -733,20 +732,6 @@ def _dp_round_indices(dp_size: int, round_idx: int, dp_samples_per_round: int, s
     return idx
 
 
-def _make_label_embedding_lookup(cfg: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray, int]:
-    # returns (emb_pos, emb_neg, dim) as float16
-    st_name = cfg["server"]["embedding_model_name"]
-    st_dev = cfg["server"].get("embedding_device", "cpu")
-    model = SentenceTransformer(st_name, device=str(st_dev))
-    # embed normalized labels only
-    embs = model.encode(["positive", "negative"], convert_to_numpy=True, show_progress_bar=False)
-    embs = embs.astype(np.float32)
-    # do not normalize here; server will L2-normalize before clustering
-    emb_pos = embs[0].astype(np.float16)
-    emb_neg = embs[1].astype(np.float16)
-    return emb_pos, emb_neg, int(embs.shape[1])
-
-
 def client_loop(
     *,
     cfg: Dict[str, Any],
@@ -815,32 +800,11 @@ def client_loop(
         time.sleep(delay_seconds)
         return delay_seconds
 
-    # embedding model initialization
-    # For classification: use pre-computed label embeddings ("positive"/"negative")
-    # For instruction with send_mode=embeddings: embed full response text locally
-    # For instruction with send_mode=text: skip embedding, server will do it
-    send_mode = str(cfg["server"].get("send_mode", "embeddings"))
-    t_emb0 = time.perf_counter()
-    
-    if task_type == "instruction":
-        if send_mode == "embeddings":
-            # Load SBERT for encoding full response text locally
-            st_name = cfg["server"]["embedding_model_name"]
-            st_dev = cfg["server"].get("embedding_device", "cpu")
-            sbert_model = SentenceTransformer(st_name, device=str(st_dev))
-            emb_dim = sbert_model.get_sentence_embedding_dimension()
-        else:
-            # send_mode=text: server will compute embeddings, skip local SBERT
-            sbert_model = None
-            emb_dim = 384  # Default for MiniLM-L6-v2, used for reporting only
-        emb_pos, emb_neg = None, None  # Not used for instruction tasks
-    else:
-        # Classification: use pre-computed embeddings for "positive"/"negative"
-        emb_pos, emb_neg, emb_dim = _make_label_embedding_lookup(cfg)
-        sbert_model = None
+    # Clients send text responses to server, server computes embeddings
+    # This reduces client resource requirements and communication overhead
+    emb_dim = 384  # MiniLM-L6-v2 dimension (for reporting only)
     
     event_queue.put({"type": "client_info", "data": {"client_id": client_id, "emb_dim": emb_dim}})
-    event_queue.put({"type": "timing", "data": timing_record("embedding_model_init", time.perf_counter() - t_emb0, client_id, None)})
 
     # optimizer/scheduler helper for expert: total steps = ceil(n/micro)*epochs
     expert_epochs = int(cfg["expert"]["expert_epochs"])
@@ -929,54 +893,26 @@ def client_loop(
             )
         event_queue.put({"type": "timing", "data": timing_record("prediction_generation", time.perf_counter() - t_pred, client_id, r)})
 
-        # embedding computation (skip if send_mode=text for instruction tasks)
-        t_emb = time.perf_counter()
-        embs: Optional[np.ndarray] = None
-        
+        # Prepare text responses to send to server (server computes embeddings)
         if task_type == "instruction":
-            valid_preds = [p if p else "" for p in preds]  # Replace None with empty string
-            labels_for_server: List[Optional[str]] = valid_preds  # Full response text as labels
-            
-            if send_mode == "embeddings":
-                # Embed locally using SBERT
-                emb_array = sbert_model.encode(valid_preds, convert_to_numpy=True, show_progress_bar=False)
-                embs = emb_array.astype(np.float16)
-            # else: send_mode=text, server will compute embeddings, embs stays None
+            # For instruction tasks: send full response text
+            labels_for_server: List[Optional[str]] = [p if p else "" for p in preds]
         else:
-            # For classification: lookup pre-computed label embeddings
-            embs = np.zeros((len(preds), emb_dim), dtype=np.float16)
-            labels_for_server: List[Optional[str]] = [None] * len(preds)
-            for i, p in enumerate(preds):
-                if p == "positive":
-                    embs[i] = emb_pos
-                    labels_for_server[i] = "positive"
-                elif p == "negative":
-                    embs[i] = emb_neg
-                    labels_for_server[i] = "negative"
-                else:
-                    labels_for_server[i] = None  # outlier
-        
-        event_queue.put({"type": "timing", "data": timing_record("embedding_computation", time.perf_counter() - t_emb, client_id, r)})
+            # For classification: send "positive"/"negative" labels
+            labels_for_server: List[Optional[str]] = [p if p in {"positive", "negative"} else None for p in preds]
 
-        # upload packaging + send
+        # Upload text responses to server (server computes embeddings)
         t_up = time.perf_counter()
         
-        # Calculate bytes_up based on what's actually sent
-        text_bytes = sum(len(lab.encode('utf-8')) if lab else 0 for lab in labels_for_server)
-        if send_mode == "embeddings" and embs is not None:
-            # Sending both embeddings and text (for consensus selection)
-            bytes_up = embs.nbytes + text_bytes
-        else:
-            # send_mode=text: only sending text, server does embedding
-            bytes_up = text_bytes
+        # Calculate bytes_up: only text is sent
+        bytes_up = sum(len(lab.encode('utf-8')) if lab else 0 for lab in labels_for_server)
         
         server_in_queue.put(
             {
                 "type": "upload",
                 "round": r,
                 "client_id": client_id,
-                "embeddings": embs,  # None if send_mode=text
-                "labels": labels_for_server,
+                "labels": labels_for_server,  # Text responses only
             }
         )
         event_queue.put({"type": "timing", "data": timing_record("upload_packaging", time.perf_counter() - t_up, client_id, r)})

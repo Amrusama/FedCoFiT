@@ -9,7 +9,7 @@
 - **Personalized Models**: Each client maintains its own adapted model
 - **Flexible Configuration**: Single config file for all experiment settings
 - **Multiple Benchmarks**: Supports IFEval, MMLU, and MT-Bench evaluation
-- **Communication Efficient**: Transmits only embeddings or text, not model weights
+- **Communication Efficient**: Clients send only text responses, server computes embeddings
 
 ## 📋 Table of Contents
 
@@ -80,25 +80,21 @@ For each round:
 │       │               │               │                              │
 │       ▼               ▼               ▼                              │
 │  ┌─────────────────────────────────────────┐                        │
-│  │     Generate responses to shared        │                        │
+│  │     Generate TEXT responses to shared   │                        │
 │  │     public unlabeled prompts            │                        │
 │  └─────────────────────────────────────────┘                        │
 │       │               │               │                              │
-│       ▼               ▼               ▼                              │
-│  ┌─────────────────────────────────────────┐                        │
-│  │   Compute sentence embeddings           │ (or send text)         │
-│  │   (using all-MiniLM-L6-v2)              │                        │
-│  └─────────────────────────────────────────┘                        │
-│       │               │               │                              │
 │       └───────────────┼───────────────┘                              │
+│                       │ (upload text only)                           │
 │                       ▼                                              │
 │              ┌─────────────────┐                                     │
 │              │     SERVER      │                                     │
 │              │                 │                                     │
-│              │  For each prompt:                                     │
-│              │  1. Collect embeddings                                │
-│              │  2. DBSCAN clustering                                 │
-│              │  3. Select consensus                                  │
+│              │  1. Receive text responses                            │
+│              │  2. Compute embeddings                                │
+│              │     (using MiniLM-L6-v2)                              │
+│              │  3. DBSCAN clustering                                 │
+│              │  4. Select consensus                                  │
 │              │     (centroid-nearest or medoid)                      │
 │              └─────────────────┘                                     │
 │                       │                                              │

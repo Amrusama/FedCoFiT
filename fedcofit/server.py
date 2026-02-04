@@ -244,34 +244,29 @@ def server_loop(
     eps = float(db["eps"])
     min_samples = int(db["min_samples"])
     metric = str(db["metric"])
-    send_mode = str(cfg["server"].get("send_mode", "embeddings"))
     task_type = str(cfg.get("task", {}).get("type", "classification"))
 
-    # If server is responsible for embeddings (send_mode=text), initialize embedding model
-    sbert_model: Optional[SentenceTransformer] = None
+    # Server computes embeddings from client text responses
+    t_init = time.perf_counter()
+    st_name = cfg["server"]["embedding_model_name"]
+    st_dev = cfg["server"].get("embedding_device", "cpu")
+    sbert_model = SentenceTransformer(st_name, device=str(st_dev))
+    emb_dim = sbert_model.get_sentence_embedding_dimension()
+    
+    # Pre-compute embeddings for classification labels
     emb_pos: Optional[np.ndarray] = None
     emb_neg: Optional[np.ndarray] = None
-    emb_dim: Optional[int] = None
-    if send_mode == "text":
-        t_init = time.perf_counter()
-        st_name = cfg["server"]["embedding_model_name"]
-        st_dev = cfg["server"].get("embedding_device", "cpu")
-        sbert_model = SentenceTransformer(st_name, device=str(st_dev))
-        emb_dim = sbert_model.get_sentence_embedding_dimension()
-        
-        if task_type == "classification":
-            # Pre-compute embeddings for classification labels
-            embs = sbert_model.encode(["positive", "negative"], convert_to_numpy=True, show_progress_bar=False).astype(np.float32)
-            emb_pos = embs[0].astype(np.float16)
-            emb_neg = embs[1].astype(np.float16)
-        # For instruction tasks, we'll embed dynamically per round
-        
-        event_queue.put(
-            {"type": "timing", "data": timing_record("server_embedding_model_init", time.perf_counter() - t_init, None, None)}
-        )
+    if task_type == "classification":
+        embs = sbert_model.encode(["positive", "negative"], convert_to_numpy=True, show_progress_bar=False).astype(np.float32)
+        emb_pos = embs[0].astype(np.float16)
+        emb_neg = embs[1].astype(np.float16)
+    
+    event_queue.put(
+        {"type": "timing", "data": timing_record("server_embedding_model_init", time.perf_counter() - t_init, None, None)}
+    )
 
     for r in range(rounds):
-        # gather uploads
+        # Gather text responses from all clients
         client_embeddings: Dict[int, np.ndarray] = {}
         client_labels: Dict[int, List[Optional[str]]] = {}
         got = 0
@@ -281,32 +276,28 @@ def server_loop(
                 continue
             cid = int(msg["client_id"])
             client_labels[cid] = msg["labels"]
-            if send_mode == "embeddings":
-                client_embeddings[cid] = msg["embeddings"]
+            
+            # Compute embeddings on server from client's text responses
+            t_emb = time.perf_counter()
+            labs: List[Optional[str]] = msg["labels"]
+            
+            if task_type == "instruction":
+                # Instruction tasks: embed full response text using SBERT
+                valid_texts = [lab if lab else "" for lab in labs]
+                arr = sbert_model.encode(valid_texts, convert_to_numpy=True, show_progress_bar=False).astype(np.float16)
             else:
-                # send_mode=text: compute embeddings on server from client's text
-                t_emb = time.perf_counter()
-                labs: List[Optional[str]] = msg["labels"]
-                if emb_dim is None:
-                    emb_dim = 384
-                
-                if task_type == "instruction":
-                    # Instruction tasks: embed full response text using SBERT
-                    valid_texts = [lab if lab else "" for lab in labs]
-                    arr = sbert_model.encode(valid_texts, convert_to_numpy=True, show_progress_bar=False).astype(np.float16)
-                else:
-                    # Classification: lookup pre-computed label embeddings
-                    arr = np.zeros((len(labs), int(emb_dim)), dtype=np.float16)
-                    for i, lab in enumerate(labs):
-                        if lab == "positive" and emb_pos is not None:
-                            arr[i] = emb_pos
-                        elif lab == "negative" and emb_neg is not None:
-                            arr[i] = emb_neg
-                
-                client_embeddings[cid] = arr
-                event_queue.put(
-                    {"type": "timing", "data": timing_record("server_embedding_computation", time.perf_counter() - t_emb, cid, r)}
-                )
+                # Classification: lookup pre-computed label embeddings
+                arr = np.zeros((len(labs), int(emb_dim)), dtype=np.float16)
+                for i, lab in enumerate(labs):
+                    if lab == "positive" and emb_pos is not None:
+                        arr[i] = emb_pos
+                    elif lab == "negative" and emb_neg is not None:
+                        arr[i] = emb_neg
+            
+            client_embeddings[cid] = arr
+            event_queue.put(
+                {"type": "timing", "data": timing_record("server_embedding_computation", time.perf_counter() - t_emb, cid, r)}
+            )
             got += 1
 
         t0 = time.perf_counter()
